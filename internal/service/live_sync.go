@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+<<<<<<< HEAD
 	"log"
+=======
+	"log/slog"
+>>>>>>> dev-deepu
 	"time"
 )
 
@@ -54,7 +58,11 @@ func (w *LiveSyncWorker) Start(ctx context.Context, syncOnStart bool) {
 }
 
 func (w *LiveSyncWorker) syncOnce(ctx context.Context) {
+<<<<<<< HEAD
 	log.Printf("🔄 Live sync starting for %d querie(s)", len(w.queries))
+=======
+	slog.Info("live sync starting", "queries", len(w.queries))
+>>>>>>> dev-deepu
 
 	for _, query := range w.queries {
 		for _, location := range w.locations {
@@ -64,22 +72,38 @@ func (w *LiveSyncWorker) syncOnce(ctx context.Context) {
 
 			if err != nil {
 				if location == "" {
+<<<<<<< HEAD
 					log.Printf("⚠️  Live sync failed for query=%q: %v", query, err)
 				} else {
 					log.Printf("⚠️  Live sync failed for query=%q location=%q: %v", query, location, err)
+=======
+					slog.Warn("live sync failed", "query", query, "err", err)
+				} else {
+					slog.Warn("live sync failed", "query", query, "location", location, "err", err)
+>>>>>>> dev-deepu
 				}
 				continue
 			}
 
 			if location == "" {
+<<<<<<< HEAD
 				log.Printf("✅ Live sync finished for query=%q", query)
 			} else {
 				log.Printf("✅ Live sync finished for query=%q location=%q", query, location)
+=======
+				slog.Info("live sync finished", "query", query)
+			} else {
+				slog.Info("live sync finished", "query", query, "location", location)
+>>>>>>> dev-deepu
 			}
 		}
 	}
 
 	if err := w.jobService.RefreshTrends(ctx); err != nil {
+<<<<<<< HEAD
 		log.Printf("⚠️  Live sync completed, but analytics refresh failed: %v", err)
+=======
+		slog.Warn("analytics refresh failed after live sync", "err", err)
+>>>>>>> dev-deepu
 	}
 }

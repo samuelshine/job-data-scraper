@@ -31,7 +31,11 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
+<<<<<<< HEAD
 	r.Use(chimiddleware.Logger)
+=======
+	r.Use(middleware.SlogLogger)
+>>>>>>> dev-deepu
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Compress(5))
 	r.Use(chimiddleware.StripSlashes)
@@ -53,10 +57,24 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+<<<<<<< HEAD
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public auth routes
 		r.Route("/auth", func(r chi.Router) {
+=======
+	// Rate limiters
+	// Auth: 5 requests/minute, burst of 10 — prevents brute-force login attempts
+	authLimiter := middleware.NewRateLimitMiddleware(5.0/60.0, 10)
+	// Admin: 2 requests/minute, burst of 3 — prevents abuse of expensive scrape triggers
+	adminLimiter := middleware.NewRateLimitMiddleware(2.0/60.0, 3)
+
+	// API v1
+	r.Route("/api/v1", func(r chi.Router) {
+		// Public auth routes — rate limited against brute-force
+		r.Route("/auth", func(r chi.Router) {
+			r.Use(authLimiter)
+>>>>>>> dev-deepu
 			r.Post("/register", cfg.AuthHandler.Register)
 			r.Post("/login", cfg.AuthHandler.Login)
 			r.Post("/logout", cfg.AuthHandler.Logout)
@@ -107,8 +125,14 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			})
 		})
 
+<<<<<<< HEAD
 		// Admin/Scraper management
 		r.Route("/admin", func(r chi.Router) {
+=======
+		// Admin/Scraper management — rate limited to prevent scrape abuse
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(adminLimiter)
+>>>>>>> dev-deepu
 			r.Post("/scrape/{source}", cfg.AnalyticsHandler.ScrapeSource)
 		})
 	})

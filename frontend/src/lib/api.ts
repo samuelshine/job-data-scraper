@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const browserAPIBase = import.meta.env.PUBLIC_API_URL || "";
+=======
+const browserAPIBase = import.meta.env.PUBLIC_API_URL || "http://localhost:8080";
+>>>>>>> dev-deepu
 const serverAPIBase =
     import.meta.env.PRIVATE_API_URL ||
     import.meta.env.PUBLIC_API_URL ||

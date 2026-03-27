@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependencies
 /vendor/
 
@@ -36,3 +37,24 @@ frontend/node_modules/
 frontend/dist/
 frontend/.astro/
 /.cache
+=======
+# Node
+node_modules/
+frontend/node_modules/
+
+# Astro
+frontend/.astro/
+
+# Env
+.env
+frontend/.env
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Misc
+.DS_Store
+Thumbs.db
+>>>>>>> dev-deepu

@@ -4,7 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+<<<<<<< HEAD
 	"log"
+=======
+	"log/slog"
+>>>>>>> dev-deepu
 	"sort"
 	"strings"
 	"sync"
@@ -84,11 +88,19 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 		var err error
 		fresh, err = a.cacheRepo.IsCacheFresh(ctx, cacheKey, a.cacheTTL)
 		if err != nil {
+<<<<<<< HEAD
 			log.Printf("⚠️  Cache check failed: %v", err)
 		}
 	}
 	if fresh {
 		log.Printf("📦 Cache hit for %q (fresh)", cacheKey)
+=======
+			slog.Warn("cache check failed", "cache_key", cacheKey, "err", err)
+		}
+	}
+	if fresh {
+		slog.Info("cache hit", "cache_key", cacheKey, "fresh", true)
+>>>>>>> dev-deepu
 		// Return from database
 		params := domain.JobQueryParams{Query: query, Location: location}
 		pag := domain.Pagination{Page: 1, Limit: 20}
@@ -108,9 +120,15 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 	}
 
 	if forceRefresh {
+<<<<<<< HEAD
 		log.Printf("🔄 Force refresh for %q, fetching from %d sources", cacheKey, len(a.sources))
 	} else {
 		log.Printf("🔍 Cache miss for %q, fetching from %d sources", cacheKey, len(a.sources))
+=======
+		slog.Info("force refresh", "cache_key", cacheKey, "sources", len(a.sources))
+	} else {
+		slog.Info("cache miss", "cache_key", cacheKey, "sources", len(a.sources))
+>>>>>>> dev-deepu
 	}
 
 	if len(a.sources) == 0 {
@@ -153,22 +171,38 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 	for res := range results {
 		a.updateSourceHealth(res)
 		if res.err != nil {
+<<<<<<< HEAD
 			log.Printf("⚠️  Source %q failed: %v", res.source, res.err)
 			errors = append(errors, fmt.Sprintf("%s: %v", res.source, res.err))
 			continue
 		}
 		log.Printf("✅ Source %q returned %d jobs", res.source, len(res.jobs))
+=======
+			slog.Warn("source fetch failed", "source", res.source, "err", res.err)
+			errors = append(errors, fmt.Sprintf("%s: %v", res.source, res.err))
+			continue
+		}
+		slog.Info("source fetch ok", "source", res.source, "jobs", len(res.jobs))
+>>>>>>> dev-deepu
 		allJobs = append(allJobs, res.jobs...)
 	}
 
 	// If all sources failed, try returning cached data
 	if len(allJobs) == 0 && len(errors) > 0 {
+<<<<<<< HEAD
 		log.Printf("⚠️  All sources failed, attempting cached fallback")
+=======
+		slog.Warn("all sources failed, falling back to cache", "errors", strings.Join(errors, "; "))
+>>>>>>> dev-deepu
 		params := domain.JobQueryParams{Query: query, Location: location}
 		pag := domain.Pagination{Page: 1, Limit: 20}
 		cached, _, err := a.jobRepo.ListJobs(ctx, params, pag)
 		if err == nil && len(cached) > 0 {
+<<<<<<< HEAD
 			log.Printf("📦 Returning %d cached results as fallback", len(cached))
+=======
+			slog.Info("serving cached fallback results", "count", len(cached))
+>>>>>>> dev-deepu
 			fullJobs := make([]domain.Job, 0, len(cached))
 			for _, s := range cached {
 				j, err := a.jobRepo.GetJob(ctx, s.ID)
@@ -183,18 +217,30 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 
 	// Deduplicate
 	deduped := dedup(allJobs)
+<<<<<<< HEAD
 	log.Printf("📊 %d total → %d unique after dedup", len(allJobs), len(deduped))
 
 	// Persist to database
 	if err := a.jobRepo.UpsertJobs(ctx, deduped); err != nil {
 		log.Printf("⚠️  Failed to persist jobs: %v", err)
+=======
+	slog.Info("dedup complete", "total", len(allJobs), "unique", len(deduped))
+
+	// Persist to database
+	if err := a.jobRepo.UpsertJobs(ctx, deduped); err != nil {
+		slog.Error("failed to persist jobs", "err", err)
+>>>>>>> dev-deepu
 		// Still return results even if persistence fails
 	} else {
 		// Upsert companies
 		companies := extractCompanies(deduped)
 		for _, co := range companies {
 			if err := a.jobRepo.UpsertCompany(ctx, &co); err != nil {
+<<<<<<< HEAD
 				log.Printf("⚠️  Failed to upsert company %s: %v", co.Slug, err)
+=======
+				slog.Warn("failed to upsert company", "slug", co.Slug, "err", err)
+>>>>>>> dev-deepu
 			}
 		}
 	}
@@ -206,7 +252,11 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 		ResultCount: len(deduped),
 	}
 	if err := a.cacheRepo.SetCacheEntry(ctx, cacheEntry); err != nil {
+<<<<<<< HEAD
 		log.Printf("⚠️  Failed to update cache entry: %v", err)
+=======
+		slog.Warn("failed to update cache entry", "cache_key", cacheKey, "err", err)
+>>>>>>> dev-deepu
 	}
 
 	return deduped, nil
@@ -250,7 +300,11 @@ func (a *Aggregator) ScrapeSource(ctx context.Context, sourceName string) ([]dom
 	// Persist results
 	deduped := dedup(jobs)
 	if err := a.jobRepo.UpsertJobs(ctx, deduped); err != nil {
+<<<<<<< HEAD
 		log.Printf("⚠️  ScrapeSource: failed to persist jobs: %v", err)
+=======
+		slog.Error("scrape source: failed to persist jobs", "source", sourceName, "err", err)
+>>>>>>> dev-deepu
 	}
 
 	return deduped, nil

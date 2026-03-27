@@ -20,7 +20,7 @@ type RemoteOKScraper struct {
 
 func NewRemoteOKScraper() *RemoteOKScraper {
 	return &RemoteOKScraper{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 25 * time.Second},
 	}
 }
 
@@ -51,6 +51,9 @@ func (s *RemoteOKScraper) Search(ctx context.Context, query, location string, pa
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 
 	resp, err := s.client.Do(req)
 	if err != nil {

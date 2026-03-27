@@ -21,7 +21,7 @@ type JobicyScraper struct {
 
 func NewJobicyScraper() *JobicyScraper {
 	return &JobicyScraper{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{Timeout: 25 * time.Second},
 		urls: []string{
 			"https://jobicy.com/api/v2/remote-jobs?count=50&tag=engineer",
 		},

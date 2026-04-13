@@ -110,7 +110,7 @@ func testServerWithSources(t *testing.T, srcs []sources.JobSource) *httptest.Ser
 	userRepo := repository.NewUserRepo(db)
 	cacheRepo := repository.NewCacheRepo(db)
 	trendsRepo := repository.NewTrendsRepo(db)
-	aggregator := service.NewAggregator(srcs, jobRepo, cacheRepo, time.Hour)
+	aggregator := service.NewAggregator(srcs, jobRepo, cacheRepo, time.Hour, 2)
 
 	jobSvc := service.NewJobService(jobRepo, userRepo, cacheRepo, trendsRepo, aggregator)
 	authSvc := service.NewAuthService(userRepo, testJWTSecret)
@@ -304,6 +304,63 @@ func TestAPI_Analytics_SourceHealth(t *testing.T) {
 
 	if result["data"][0]["name"] != "bridge" {
 		t.Fatalf("source name = %v, want bridge", result["data"][0]["name"])
+	}
+}
+
+func TestAPI_AuthRateLimit(t *testing.T) {
+	db, err := database.NewDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	jobRepo := repository.NewJobRepo(db)
+	userRepo := repository.NewUserRepo(db)
+	cacheRepo := repository.NewCacheRepo(db)
+	trendsRepo := repository.NewTrendsRepo(db)
+
+	jobSvc := service.NewJobService(jobRepo, userRepo, cacheRepo, trendsRepo, nil)
+	authSvc := service.NewAuthService(userRepo, testJWTSecret)
+
+	router := NewRouter(RouterConfig{
+		JobHandler:             handlers.NewJobHandler(jobSvc),
+		CompanyHandler:         handlers.NewCompanyHandler(jobSvc),
+		AnalyticsHandler:       handlers.NewAnalyticsHandler(jobSvc),
+		AuthHandler:            handlers.NewAuthHandler(authSvc, userRepo),
+		JWTSecret:              testJWTSecret,
+		CORSOrigins:            []string{"*"},
+		RateLimitEnabled:       true,
+		RateLimitRequests:      100,
+		RateLimitWindow:        time.Minute,
+		AuthRateLimitRequests:  1,
+		AuthRateLimitWindow:    time.Minute,
+		AdminRateLimitRequests: 1,
+		AdminRateLimitWindow:   time.Minute,
+	})
+
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	client := &http.Client{}
+	for attempt := range 2 {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/auth/session", nil)
+		if err != nil {
+			t.Fatalf("NewRequest failed: %v", err)
+		}
+		req.Header.Set("X-Forwarded-For", "203.0.113.10")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request %d failed: %v", attempt+1, err)
+		}
+		resp.Body.Close()
+
+		if attempt == 0 && resp.StatusCode != http.StatusOK {
+			t.Fatalf("first status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+		if attempt == 1 && resp.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("second status = %d, want %d", resp.StatusCode, http.StatusTooManyRequests)
+		}
 	}
 }
 

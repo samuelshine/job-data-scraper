@@ -2,7 +2,11 @@ package scraper
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,9 +20,40 @@ type HNScraper struct {
 }
 
 func NewHNScraper() *HNScraper {
-	return &HNScraper{
-		threadID: "47219668", // Latest "Who's Hiring" thread for March 2026
+	id := resolveLatestHNThread()
+	return &HNScraper{threadID: id}
+}
+
+// resolveLatestHNThread queries the HN Algolia API for the latest
+// "Ask HN: Who is hiring?" thread and returns its object ID.
+func resolveLatestHNThread() string {
+	const fallback = "47219668"
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
 	}
+	resp, err := client.Get("https://hn.algolia.com/api/v1/search_by_date?query=%22Ask+HN:+Who+is+hiring%22&tags=story,ask_hn&hitsPerPage=1")
+	if err != nil {
+		log.Printf("⚠️  HN thread lookup failed, using fallback: %v", err)
+		return fallback
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Hits []struct {
+			ObjectID string `json:"objectID"`
+			Title    string `json:"title"`
+		} `json:"hits"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Hits) == 0 {
+		log.Printf("⚠️  HN thread lookup returned no results, using fallback")
+		return fallback
+	}
+
+	log.Printf("✅ Resolved HN thread: %s (%s)", result.Hits[0].ObjectID, result.Hits[0].Title)
+	return result.Hits[0].ObjectID
 }
 
 func (s *HNScraper) Name() string {
@@ -30,9 +65,14 @@ func (s *HNScraper) Search(ctx context.Context, query, location string, page int
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("news.ycombinator.com"),
-		colly.UserAgent("JobPulse/1.0 (+https://github.com/samuelshine/jobpulse; job aggregator)"),
+		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 		colly.Async(true),
 	)
+
+	// Configure TLS skip verify for Docker Alpine compatibility
+	c.WithTransport(&http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	})
 
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",

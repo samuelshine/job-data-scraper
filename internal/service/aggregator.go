@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -22,17 +23,23 @@ type Aggregator struct {
 	jobRepo   *repository.JobRepo
 	cacheRepo *repository.CacheRepo
 	cacheTTL  time.Duration
+	workers   int
 	mu        sync.RWMutex
 	statuses  map[string]domain.SourceHealth
 }
 
 // NewAggregator creates a new aggregator.
-func NewAggregator(srcs []sources.JobSource, jobRepo *repository.JobRepo, cacheRepo *repository.CacheRepo, cacheTTL time.Duration) *Aggregator {
+func NewAggregator(srcs []sources.JobSource, jobRepo *repository.JobRepo, cacheRepo *repository.CacheRepo, cacheTTL time.Duration, workers int) *Aggregator {
+	if workers <= 0 {
+		workers = 1
+	}
+
 	return &Aggregator{
 		sources:   srcs,
 		jobRepo:   jobRepo,
 		cacheRepo: cacheRepo,
 		cacheTTL:  cacheTTL,
+		workers:   workers,
 		statuses:  make(map[string]domain.SourceHealth, len(srcs)),
 	}
 }
@@ -117,40 +124,26 @@ func (a *Aggregator) SearchAndStore(ctx context.Context, query, location string,
 		return nil, fmt.Errorf("aggregator: no sources configured")
 	}
 
-	// Fan-out: launch goroutines per source
-	results := make(chan sourceResult, len(a.sources))
-	var wg sync.WaitGroup
-
 	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
-	for _, src := range a.sources {
-		wg.Add(1)
-		go func(s sources.JobSource) {
-			defer wg.Done()
-			started := time.Now()
-			jobs, err := s.Search(fetchCtx, query, location, page)
-			results <- sourceResult{
-				source:   s.Name(),
-				jobs:     jobs,
-				err:      err,
-				query:    query,
-				started:  started,
-				finished: time.Now(),
-			}
-		}(src)
-	}
-
-	// Close channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	pool := NewWorkerPool[sources.JobSource, sourceResult](a.workers)
+	results := pool.Run(fetchCtx, a.sources, func(ctx context.Context, s sources.JobSource) sourceResult {
+		started := time.Now()
+		jobs, err := s.Search(ctx, query, location, page)
+		return sourceResult{
+			source:   s.Name(),
+			jobs:     jobs,
+			err:      err,
+			query:    query,
+			started:  started,
+			finished: time.Now(),
+		}
+	})
 
 	// Fan-in: collect results
 	var allJobs []domain.Job
 	var errors []string
-	for res := range results {
+	for _, res := range results {
 		a.updateSourceHealth(res)
 		if res.err != nil {
 			log.Printf("⚠️  Source %q failed: %v", res.source, res.err)
@@ -229,9 +222,14 @@ func (a *Aggregator) ScrapeSource(ctx context.Context, sourceName string) ([]dom
 	}
 
 	started := time.Now()
-	// Use a default query for manual refresh
-	query := "software"
-	location := "remote"
+	// Scraper-type sources return broad results without a query filter.
+	// API-based sources need a query or they return errors.
+	query := ""
+	location := ""
+	switch sourceName {
+	case "jsearch", "adzuna":
+		query = "developer"
+	}
 	jobs, err := targeted.Search(ctx, query, location, 1)
 
 	a.updateSourceHealth(sourceResult{
@@ -256,15 +254,33 @@ func (a *Aggregator) ScrapeSource(ctx context.Context, sourceName string) ([]dom
 	return deduped, nil
 }
 
-// dedup removes duplicate jobs by lowercase(title + company).
+// dedup removes duplicate jobs by canonical URL or normalized job identity and
+// prefers the richer record when duplicates overlap.
 func dedup(jobs []domain.Job) []domain.Job {
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	result := make([]domain.Job, 0, len(jobs))
 	for _, j := range jobs {
-		key := strings.ToLower(j.Title + "|" + j.Company)
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, j)
+		keys := dedupeKeys(j)
+		matchedIndex := -1
+		for _, key := range keys {
+			if index, ok := seen[key]; ok {
+				matchedIndex = index
+				break
+			}
+		}
+
+		if matchedIndex >= 0 {
+			result[matchedIndex] = mergeJobs(result[matchedIndex], j)
+			for _, key := range dedupeKeys(result[matchedIndex]) {
+				seen[key] = matchedIndex
+			}
+			continue
+		}
+
+		result = append(result, j)
+		index := len(result) - 1
+		for _, key := range keys {
+			seen[key] = index
 		}
 	}
 	return result
@@ -320,4 +336,186 @@ func (a *Aggregator) updateSourceHealth(res sourceResult) {
 
 func timePtr(value time.Time) *time.Time {
 	return &value
+}
+
+func dedupeKeys(job domain.Job) []string {
+	keys := make([]string, 0, 3)
+
+	if sourceURL := normalizeSourceURL(job.SourceURL); sourceURL != "" {
+		keys = append(keys, "url:"+sourceURL)
+	}
+
+	title := normalizeJobIdentityPart(job.Title)
+	company := normalizeJobIdentityPart(job.Company)
+	location := normalizeJobIdentityPart(job.Location)
+	kind := normalizeJobIdentityPart(job.EmploymentType)
+	postedDay := ""
+	if !job.PostedAt.IsZero() {
+		postedDay = job.PostedAt.UTC().Format("2006-01-02")
+	}
+
+	if title != "" && company != "" && location != "" {
+		keys = append(keys, "identity:"+strings.Join([]string{title, company, location, kind}, "|"))
+	}
+
+	if title != "" && company != "" && postedDay != "" {
+		keys = append(keys, "posting:"+strings.Join([]string{title, company, postedDay}, "|"))
+	}
+
+	return keys
+}
+
+func mergeJobs(current, candidate domain.Job) domain.Job {
+	if jobQualityScore(candidate) > jobQualityScore(current) {
+		current, candidate = candidate, current
+	}
+
+	if current.ID == "" {
+		current.ID = candidate.ID
+	}
+	if current.CompanySlug == "" {
+		current.CompanySlug = candidate.CompanySlug
+	}
+	if current.SourceURL == "" {
+		current.SourceURL = candidate.SourceURL
+	}
+	if current.Description == "" || len(candidate.Description) > len(current.Description) {
+		current.Description = candidate.Description
+	}
+	if current.Location == "" {
+		current.Location = candidate.Location
+	}
+	if current.EmploymentType == "" {
+		current.EmploymentType = candidate.EmploymentType
+	}
+	if current.ExperienceLevel == "" {
+		current.ExperienceLevel = candidate.ExperienceLevel
+	}
+	if current.SalaryMin == nil {
+		current.SalaryMin = candidate.SalaryMin
+	}
+	if current.SalaryMax == nil {
+		current.SalaryMax = candidate.SalaryMax
+	}
+	if current.SalaryCurrency == "" {
+		current.SalaryCurrency = candidate.SalaryCurrency
+	}
+	if current.PostedAt.IsZero() || (!candidate.PostedAt.IsZero() && candidate.PostedAt.Before(current.PostedAt)) {
+		current.PostedAt = candidate.PostedAt
+	}
+	if current.ExpiresAt == nil {
+		current.ExpiresAt = candidate.ExpiresAt
+	}
+	current.IsRemote = current.IsRemote || candidate.IsRemote
+	current.Skills = mergeSkills(current.Skills, candidate.Skills)
+
+	return current
+}
+
+func mergeSkills(left, right domain.StringSlice) domain.StringSlice {
+	if len(left) == 0 {
+		return append(domain.StringSlice(nil), right...)
+	}
+	if len(right) == 0 {
+		return left
+	}
+
+	seen := make(map[string]struct{}, len(left)+len(right))
+	merged := make(domain.StringSlice, 0, len(left)+len(right))
+	for _, skill := range append(append(domain.StringSlice(nil), left...), right...) {
+		normalized := normalizeJobIdentityPart(skill)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		merged = append(merged, skill)
+	}
+
+	return merged
+}
+
+func jobQualityScore(job domain.Job) int {
+	score := 0
+	if strings.TrimSpace(job.ID) != "" {
+		score += 1
+	}
+	if strings.TrimSpace(job.SourceURL) != "" {
+		score += 3
+	}
+	if strings.TrimSpace(job.Description) != "" {
+		score += min(len(strings.TrimSpace(job.Description))/120, 5)
+	}
+	if job.SalaryMin != nil {
+		score += 2
+	}
+	if job.SalaryMax != nil {
+		score += 2
+	}
+	if len(job.Skills) > 0 {
+		score += min(len(job.Skills), 4)
+	}
+	if !job.PostedAt.IsZero() {
+		score += 1
+	}
+	if strings.TrimSpace(job.Location) != "" {
+		score += 1
+	}
+	if strings.TrimSpace(job.ExperienceLevel) != "" {
+		score += 1
+	}
+
+	return score
+}
+
+func normalizeSourceURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return strings.TrimRight(strings.ToLower(raw), "/")
+	}
+
+	parsed.Scheme = ""
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	host := strings.ToLower(parsed.Host)
+	path := strings.TrimRight(strings.ToLower(parsed.EscapedPath()), "/")
+	if path == "" {
+		path = "/"
+	}
+
+	return host + path
+}
+
+func normalizeJobIdentityPart(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	lastDash := false
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			lastDash = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+
+	return strings.Trim(b.String(), "-")
 }

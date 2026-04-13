@@ -12,6 +12,10 @@ A full-stack job search app with:
 
 The app is packaged to run through a **single Docker container**. The container starts the Astro frontend internally and exposes the whole product through the Go server on port `8080`.
 
+## Reference Documentation
+
+For a full project map covering architecture, packages, data flow, storage, screens, endpoints, integrations, and current implementation notes, see [docs/project-reference.md](docs/project-reference.md).
+
 ## What Works
 
 - Search jobs by role
@@ -119,6 +123,19 @@ Then open [http://localhost:8080](http://localhost:8080).
 | `JWT_SECRET` | dev default | JWT signing secret; set a strong value in production |
 | `CORS_ORIGINS` | local defaults | Allowed origins |
 | `FRONTEND_SERVER_URL` | empty | Normally set automatically by `start.sh` inside the Docker image |
+| `SOURCE_FETCH_WORKERS` | `4` | Max concurrent source fetch workers in the backend aggregator |
+
+### Rate limiting
+
+| Variable | Default | Description |
+|---|---|---|
+| `RATE_LIMIT_ENABLED` | `true` | Enables in-memory API rate limiting |
+| `RATE_LIMIT_REQUESTS` | `120` | Request budget per `RATE_LIMIT_WINDOW` for general API traffic |
+| `RATE_LIMIT_WINDOW` | `1m` | Fixed window used by the general API limiter |
+| `AUTH_RATE_LIMIT_REQUESTS` | `20` | Request budget per auth window for `/api/v1/auth/*` |
+| `AUTH_RATE_LIMIT_WINDOW` | `1m` | Fixed window used by auth endpoints |
+| `ADMIN_RATE_LIMIT_REQUESTS` | `10` | Request budget per admin window for `/api/v1/admin/*` |
+| `ADMIN_RATE_LIMIT_WINDOW` | `1m` | Fixed window used by admin endpoints |
 
 ### API ingestion
 

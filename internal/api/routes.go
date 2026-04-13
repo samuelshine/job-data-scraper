@@ -5,6 +5,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -16,19 +17,29 @@ import (
 
 // RouterConfig holds all dependencies needed for the router.
 type RouterConfig struct {
-	JobHandler         *handlers.JobHandler
-	CompanyHandler     *handlers.CompanyHandler
-	AnalyticsHandler   *handlers.AnalyticsHandler
-	AuthHandler        *handlers.AuthHandler
-	ApplicationHandler *handlers.ApplicationHandler
-	JWTSecret          string
-	CORSOrigins        []string
-	FrontendServerURL  string
+	JobHandler             *handlers.JobHandler
+	CompanyHandler         *handlers.CompanyHandler
+	AnalyticsHandler       *handlers.AnalyticsHandler
+	AuthHandler            *handlers.AuthHandler
+	ApplicationHandler     *handlers.ApplicationHandler
+	JWTSecret              string
+	CORSOrigins            []string
+	FrontendServerURL      string
+	RateLimitEnabled       bool
+	RateLimitRequests      int
+	RateLimitWindow        time.Duration
+	AuthRateLimitRequests  int
+	AuthRateLimitWindow    time.Duration
+	AdminRateLimitRequests int
+	AdminRateLimitWindow   time.Duration
 }
 
 // NewRouter creates the HTTP router with all routes.
 func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
+	apiLimiter := buildRateLimiter(cfg.RateLimitEnabled, cfg.RateLimitRequests, cfg.RateLimitWindow)
+	authLimiter := buildRateLimiter(cfg.RateLimitEnabled, cfg.AuthRateLimitRequests, cfg.AuthRateLimitWindow)
+	adminLimiter := buildRateLimiter(cfg.RateLimitEnabled, cfg.AdminRateLimitRequests, cfg.AdminRateLimitWindow)
 
 	// Middleware
 	r.Use(chimiddleware.Logger)
@@ -55,8 +66,15 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
+		if apiLimiter != nil {
+			r.Use(apiLimiter.Middleware)
+		}
+
 		// Public auth routes
 		r.Route("/auth", func(r chi.Router) {
+			if authLimiter != nil {
+				r.Use(authLimiter.Middleware)
+			}
 			r.Post("/register", cfg.AuthHandler.Register)
 			r.Post("/login", cfg.AuthHandler.Login)
 			r.Post("/logout", cfg.AuthHandler.Logout)
@@ -109,6 +127,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 
 		// Admin/Scraper management
 		r.Route("/admin", func(r chi.Router) {
+			if adminLimiter != nil {
+				r.Use(adminLimiter.Middleware)
+			}
 			r.Post("/scrape/{source}", cfg.AnalyticsHandler.ScrapeSource)
 		})
 	})
@@ -139,4 +160,12 @@ func buildFrontendProxy(rawURL string) *httputil.ReverseProxy {
 		http.Error(w, "frontend is unavailable", http.StatusBadGateway)
 	}
 	return proxy
+}
+
+func buildRateLimiter(enabled bool, requests int, window time.Duration) *middleware.RateLimiter {
+	if !enabled {
+		return nil
+	}
+
+	return middleware.NewRateLimiter(requests, window)
 }

@@ -11,13 +11,13 @@ import (
 	"github.com/samuelshine/job-data-scraper/internal/config"
 	"github.com/samuelshine/job-data-scraper/internal/database"
 	"github.com/samuelshine/job-data-scraper/internal/repository"
+	"github.com/samuelshine/job-data-scraper/internal/scraper"
 	"github.com/samuelshine/job-data-scraper/internal/service"
 	"github.com/samuelshine/job-data-scraper/internal/sources"
 	"github.com/samuelshine/job-data-scraper/internal/sources/adzuna"
 	"github.com/samuelshine/job-data-scraper/internal/sources/jsearch"
 	"github.com/samuelshine/job-data-scraper/internal/sources/scrapebridge"
 	"github.com/samuelshine/job-data-scraper/internal/sources/webscrape"
-	"github.com/samuelshine/job-data-scraper/internal/scraper"
 )
 
 func main() {
@@ -103,7 +103,7 @@ func main() {
 	// Build aggregator (nil if no sources)
 	var aggregator *service.Aggregator
 	if len(srcs) > 0 {
-		aggregator = service.NewAggregator(srcs, jobRepo, cacheRepo, cfg.CacheTTL)
+		aggregator = service.NewAggregator(srcs, jobRepo, cacheRepo, cfg.CacheTTL, cfg.SourceFetchWorkers)
 		log.Printf("🔍 Aggregator enabled with %d source(s)", len(srcs))
 	} else {
 		log.Printf("📦 No API keys configured — using seed data only")
@@ -127,14 +127,21 @@ func main() {
 
 	// Create router
 	router := api.NewRouter(api.RouterConfig{
-		JobHandler:         jobHandler,
-		CompanyHandler:     companyHandler,
-		AnalyticsHandler:   analyticsHandler,
-		AuthHandler:        authHandler,
-		ApplicationHandler: appHandler,
-		JWTSecret:          cfg.JWTSecret,
-		CORSOrigins:        cfg.CORSOrigins,
-		FrontendServerURL:  cfg.FrontendServerURL,
+		JobHandler:             jobHandler,
+		CompanyHandler:         companyHandler,
+		AnalyticsHandler:       analyticsHandler,
+		AuthHandler:            authHandler,
+		ApplicationHandler:     appHandler,
+		JWTSecret:              cfg.JWTSecret,
+		CORSOrigins:            cfg.CORSOrigins,
+		FrontendServerURL:      cfg.FrontendServerURL,
+		RateLimitEnabled:       cfg.RateLimitEnabled,
+		RateLimitRequests:      cfg.RateLimitRequests,
+		RateLimitWindow:        cfg.RateLimitWindow,
+		AuthRateLimitRequests:  cfg.AuthRateLimitRequests,
+		AuthRateLimitWindow:    cfg.AuthRateLimitWindow,
+		AdminRateLimitRequests: cfg.AdminRateLimitRequests,
+		AdminRateLimitWindow:   cfg.AdminRateLimitWindow,
 	})
 
 	// Start server

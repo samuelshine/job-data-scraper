@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,9 +22,20 @@ type JobicyScraper struct {
 
 func NewJobicyScraper() *JobicyScraper {
 	return &JobicyScraper{
+<<<<<<< Updated upstream
 		client: &http.Client{Timeout: 25 * time.Second},
+=======
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
+>>>>>>> Stashed changes
 		urls: []string{
+			"https://jobicy.com/api/v2/remote-jobs?count=50&tag=software",
 			"https://jobicy.com/api/v2/remote-jobs?count=50&tag=engineer",
+			"https://jobicy.com/api/v2/remote-jobs?count=50&tag=developer",
 		},
 	}
 }
@@ -96,9 +108,8 @@ func (s *JobicyScraper) Search(ctx context.Context, query, location string, page
 		for _, j := range res.Jobs {
 			// Filtering
 			if query != "" {
-				if !strings.Contains(strings.ToLower(j.JobTitle), strings.ToLower(query)) &&
-					!strings.Contains(strings.ToLower(j.CompanyName), strings.ToLower(query)) &&
-					!strings.Contains(strings.ToLower(j.JobExcerpt), strings.ToLower(query)) {
+				searchable := strings.ToLower(j.JobTitle + " " + j.CompanyName + " " + j.JobExcerpt + " " + strings.Join(j.JobIndustry, " "))
+				if !strings.Contains(searchable, strings.ToLower(query)) {
 					continue
 				}
 			}

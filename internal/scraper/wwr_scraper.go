@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -19,7 +20,12 @@ type WWRScraper struct {
 
 func NewWWRScraper() *WWRScraper {
 	return &WWRScraper{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
 		feeds: []string{
 			"https://weworkremotely.com/remote-jobs.rss",
 			"https://weworkremotely.com/categories/remote-programming-jobs.rss",

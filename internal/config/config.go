@@ -10,11 +10,20 @@ import (
 
 // Config holds application configuration.
 type Config struct {
-	Port              string
-	DatabasePath      string
-	JWTSecret         string
-	CORSOrigins       []string
-	FrontendServerURL string
+	Port               string
+	DatabasePath       string
+	JWTSecret          string
+	CORSOrigins        []string
+	FrontendServerURL  string
+	SourceFetchWorkers int
+
+	RateLimitEnabled       bool
+	RateLimitRequests      int
+	RateLimitWindow        time.Duration
+	AuthRateLimitRequests  int
+	AuthRateLimitWindow    time.Duration
+	AdminRateLimitRequests int
+	AdminRateLimitWindow   time.Duration
 
 	// API keys for job sources
 	JSearchAPIKey string
@@ -51,16 +60,24 @@ func LoadConfig() *Config {
 	loadDotEnv(".env")
 
 	return &Config{
-		Port:              getEnv("PORT", "8080"),
-		DatabasePath:      getEnv("DATABASE_PATH", "jobpulse.db"),
-		JWTSecret:         getEnv("JWT_SECRET", "dev-secret-change-in-production"),
-		CORSOrigins:       splitCSV(getEnv("CORS_ORIGINS", "http://localhost:4321,http://127.0.0.1:4321,http://localhost:8080,http://127.0.0.1:8080")),
-		FrontendServerURL: getEnv("FRONTEND_SERVER_URL", ""),
-		JSearchAPIKey:     os.Getenv("JSEARCH_API_KEY"),
-		AdzunaAppID:       os.Getenv("ADZUNA_APP_ID"),
-		AdzunaAppKey:      os.Getenv("ADZUNA_APP_KEY"),
-		ScrapeBridgeURL:   strings.TrimSpace(os.Getenv("SCRAPE_BRIDGE_URL")),
-		ScrapeBridgeToken: strings.TrimSpace(os.Getenv("SCRAPE_BRIDGE_TOKEN")),
+		Port:                   getEnv("PORT", "8080"),
+		DatabasePath:           getEnv("DATABASE_PATH", "jobpulse.db"),
+		JWTSecret:              getEnv("JWT_SECRET", "dev-secret-change-in-production"),
+		CORSOrigins:            splitCSV(getEnv("CORS_ORIGINS", "http://localhost:4321,http://127.0.0.1:4321,http://localhost:8080,http://127.0.0.1:8080")),
+		FrontendServerURL:      getEnv("FRONTEND_SERVER_URL", ""),
+		SourceFetchWorkers:     parseIntEnv("SOURCE_FETCH_WORKERS", 4),
+		RateLimitEnabled:       parseBoolEnv("RATE_LIMIT_ENABLED", true),
+		RateLimitRequests:      parseIntEnv("RATE_LIMIT_REQUESTS", 120),
+		RateLimitWindow:        parseDurationEnv("RATE_LIMIT_WINDOW", time.Minute),
+		AuthRateLimitRequests:  parseIntEnv("AUTH_RATE_LIMIT_REQUESTS", 20),
+		AuthRateLimitWindow:    parseDurationEnv("AUTH_RATE_LIMIT_WINDOW", time.Minute),
+		AdminRateLimitRequests: parseIntEnv("ADMIN_RATE_LIMIT_REQUESTS", 10),
+		AdminRateLimitWindow:   parseDurationEnv("ADMIN_RATE_LIMIT_WINDOW", time.Minute),
+		JSearchAPIKey:          os.Getenv("JSEARCH_API_KEY"),
+		AdzunaAppID:            os.Getenv("ADZUNA_APP_ID"),
+		AdzunaAppKey:           os.Getenv("ADZUNA_APP_KEY"),
+		ScrapeBridgeURL:        strings.TrimSpace(os.Getenv("SCRAPE_BRIDGE_URL")),
+		ScrapeBridgeToken:      strings.TrimSpace(os.Getenv("SCRAPE_BRIDGE_TOKEN")),
 		ScrapeBridgeSources: splitCSV(
 			getEnv("SCRAPE_BRIDGE_SOURCES", "linkedin,indeed"),
 		),
@@ -144,6 +161,20 @@ func parseBoolEnv(key string, fallback bool) bool {
 
 	parsed, err := strconv.ParseBool(raw)
 	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func parseIntEnv(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
 		return fallback
 	}
 

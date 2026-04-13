@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────
 # Stage 1: Build frontend
 # ──────────────────────────────────────────────
-FROM public.ecr.aws/docker/library/node:20-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
@@ -12,7 +12,7 @@ RUN npm run build
 # ──────────────────────────────────────────────
 # Stage 2: Build Go backend
 # ──────────────────────────────────────────────
-FROM public.ecr.aws/docker/library/golang:1.25-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server ./cmd/server
 # ──────────────────────────────────────────────
 # Stage 3: Final minimal runtime
 # ──────────────────────────────────────────────
-FROM public.ecr.aws/docker/library/node:20-alpine
+FROM node:20-alpine
 
 RUN apk add --no-cache ca-certificates tzdata
 

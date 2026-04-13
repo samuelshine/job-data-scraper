@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,7 +21,16 @@ type RemoteOKScraper struct {
 
 func NewRemoteOKScraper() *RemoteOKScraper {
 	return &RemoteOKScraper{
+<<<<<<< Updated upstream
 		client: &http.Client{Timeout: 25 * time.Second},
+=======
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
+>>>>>>> Stashed changes
 	}
 }
 
